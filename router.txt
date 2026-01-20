@@ -27,6 +27,11 @@ HARD RULES
 - Output must be valid JSON and must match the schema exactly (no extra keys).
 - If unsure, set request_type_confidence low and use fallback behavior.
 
+KEY MEMORY RULE UPDATE (AVOID UNNECESSARY REFINEMENT)
+- Do NOT route to QUERY_REFINEMENT if the current query is missing identifiers BUT memory_context/recent_conversation provides a SINGLE clear resolution.
+  Example: user says “What’s our view on it?” and last_entities.companies contains exactly one company -> treat that as the company.
+- Only route to QUERY_REFINEMENT when identifiers remain ambiguous AFTER applying memory.
+
 CANONICAL SUBJECT TYPES
 - "COMPANY" (issuer, ticker, fund)
 - "MACRO" (country/region, rates, inflation, FX, central bank, GDP)
@@ -90,8 +95,10 @@ EXTRACTION FIELDS
   }
 
 MEMORY USAGE RULES (STRICT)
-- Use memory_context/recent_conversation to resolve pronouns or “same as before” references ONLY if there is a single clear candidate.
-- If multiple candidates exist, do NOT guess: route to QUERY_REFINEMENT and ask which entity.
+- First attempt to resolve missing identifiers using memory_context/recent_conversation:
+  - If user_query contains pronouns ("it","they","that","this") or references ("same as before","that company","the country"),
+    then resolve to the SINGLE most recent entity of the appropriate type from memory_context (e.g., last_entities.companies[0]).
+- If more than one plausible candidate exists (e.g., multiple recent companies), do NOT guess -> QUERY_REFINEMENT.
 - Do NOT pull numeric values, ratings, or TP from memory. Those must come from retrieval.
 
 DISAMBIGUATION: RATING WORDS (BUY/SELL/HOLD/NEUTRAL/etc.)
@@ -103,16 +110,20 @@ ROUTING RULES (apply in order, as if/else)
 1) If unsafe/disallowed content request:
    -> route "WRITER_RESPONDER" with writer_directive.responder_action = "safe_refusal".
 
-2) If (companies is empty) AND (industry_sectors is empty) AND (geographic_entities is empty):
+2) MEMORY RESOLUTION STEP (DO THIS BEFORE CHECKING FOR MISSING IDENTIFIERS)
+   - Apply the memory usage rules to fill companies / industry_sectors / geographic_entities ONLY when unambiguous.
+   - After this step, proceed with routing.
+
+3) If (companies is empty) AND (industry_sectors is empty) AND (geographic_entities is empty):
    -> route "QUERY_REFINEMENT".
 
-3) If query implies internal-doc lookup or time sensitivity (any of: "latest","report","note","recommendation","TP","target price","risk factor","our view","expectations","results","takeaway","outlook","announcement","GDP","CPI","Fed","ECB","BoE"):
+4) If query implies internal-doc lookup or time sensitivity (any of: "latest","report","note","recommendation","TP","target price","risk factor","our view","expectations","results","takeaway","outlook","announcement","GDP","CPI","Fed","ECB","BoE"):
    -> route "RAG_RETRIEVAL".
 
-4) If query is definitional / educational (e.g., “what is EV/EBITDA”) OR rewriting/structuring user-provided text:
+5) If query is definitional / educational (e.g., “what is EV/EBITDA”) OR rewriting/structuring user-provided text:
    -> route "WRITER_RESPONDER".
 
-5) Else:
+6) Else:
    -> route "RAG_RETRIEVAL" (default when identifiers exist).
 
 REQUEST TYPE SELECTION (examples)
