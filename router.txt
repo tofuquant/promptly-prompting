@@ -230,13 +230,11 @@ RAG_RETRIEVAL:
 {
   "route": "RAG_RETRIEVAL",
   "retrieval_query": "concise search string",  // 3-8 words, key entities only
-  "filters": {
     "companies": [...],
     "industry_sectors": [...],
     "geographic_entities": [...],
     "time_periods": {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"},
-    "content_types": [...]
-  },
+    "content_types": [...],
   "extracted": {...},
   "query_intent": {...},
   "memory_context_used": true/false,
