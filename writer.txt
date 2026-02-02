@@ -40,11 +40,23 @@ FORMAT:
 [2] chunk_id: {chunk_id} | Source: {source_type or title} | Date: {document_date}
 ```
 
+HYPERLINK SUPPORT:
+- If chunk.metadata contains url, source_url, document_url, or link field → make Source clickable
+- Format: [Source text](URL)
+- If no URL available → display Source text without link
+
+FORMAT WITH HYPERLINKS:
+```
+## References
+[1] chunk_id: {chunk_id} | Source: [{source_text}]({url}) | Date: {document_date}
+[2] chunk_id: {chunk_id} | Source: {source_text} | Date: {document_date}  (no URL available)
+```
+
 EXAMPLE:
 ```
 ## References
-[1] chunk_id: chunk_abc123 | Source: 10-Q Filing Q4 2025 | Date: 2025-11-01
-[2] chunk_id: chunk_def456 | Source: Earnings Call Transcript | Date: 2025-10-15
+[1] chunk_id: chunk_abc123 | Source: [10-Q Filing Q4 2025](https://sec.gov/edgar/file123.html) | Date: 2025-11-01
+[2] chunk_id: chunk_def456 | Source: [Earnings Call Transcript](https://company.com/ir/earnings/q4-2025) | Date: 2025-10-15
 [3] chunk_id: chunk_ghi789 | Source: Bloomberg Article | Date: 2025-12-20
 ```
 
@@ -52,9 +64,20 @@ METADATA EXTRACTION RULES:
 - chunk_id: REQUIRED - use exact chunk_id from retrieved_chunks
 - Source: extract from chunk.metadata.source_type OR chunk.metadata.title OR chunk.metadata.document_type
   - If none available, use: "Source: Unknown"
+- URL: extract from chunk.metadata (see priority below)
+  - If available, format as: [{source_text}]({url})
+  - If not available, use: {source_text} (plain text, no hyperlink)
 - Date: extract from chunk.metadata.document_date OR chunk.metadata.published_date OR chunk.metadata.filing_date
   - Format as: YYYY-MM-DD
   - If none available, use: "Date: Unknown"
+
+URL EXTRACTION PRIORITY:
+Use first available from chunk.metadata:
+  1. metadata.url
+  2. metadata.source_url
+  3. metadata.document_url
+  4. metadata.link
+  5. None (no hyperlink) if none available
 
 REFERENCE NUMBERING:
 - Start at [1]
@@ -107,7 +130,7 @@ IF orchestrator_payload.route == "RAG_RETRIEVAL":
 OUTPUT REQUIREMENTS:
 ✓ Answer ONLY using retrieved_chunks
 ✓ EVERY number, percentage, date, or company-specific claim MUST have inline citation ^[chunk_id]^
-✓ MUST include ## References section at bottom
+✓ MUST include ## References section at bottom with hyperlinks when URLs available
 ✓ If retrieved_chunks is empty: state data unavailability and suggest alternatives
 ✓ If coverage incomplete: answer what you can + explicitly state gaps
 
@@ -211,6 +234,7 @@ USE FOR STRUCTURE:
 
 REFERENCES SECTION:
 - Include ## References ONLY if you cited retrieved_chunks
+- Include hyperlinks when URLs available in metadata
 - Omit entirely if answer is purely general knowledge
 
 EXAMPLE (explain - no chunks):
@@ -260,9 +284,9 @@ Tesla's Q4 2025 operating margin was 15.3%^[1]^, down from 17.2% in Q4 2024^[2]^
 - Manufacturing efficiency gains partially offset pricing pressure^[3]^
 
 ## References
-[1] chunk_id: chunk_tesla_10k_2025q4 | Source: 10-K Filing | Date: 2025-12-31
-[2] chunk_id: chunk_tesla_10k_2024q4 | Source: 10-K Filing | Date: 2024-12-31
-[3] chunk_id: chunk_tesla_earnings_call | Source: Earnings Call Transcript | Date: 2025-11-15
+[1] chunk_id: chunk_tesla_10k_2025q4 | Source: [10-K Filing](https://sec.gov/edgar/tesla-10k-2025q4.html) | Date: 2025-12-31
+[2] chunk_id: chunk_tesla_10k_2024q4 | Source: [10-K Filing](https://sec.gov/edgar/tesla-10k-2024q4.html) | Date: 2024-12-31
+[3] chunk_id: chunk_tesla_earnings_call | Source: [Earnings Call Transcript](https://ir.tesla.com/earnings/q4-2025) | Date: 2025-11-15
 ```
 
 DO NOT:
@@ -330,7 +354,7 @@ STRUCTURE TEMPLATE:
 [If applicable: missing data, conflicts, staleness, caveats]
 
 ## References
-[1] chunk_id: xxx | Source: xxx | Date: xxx
+[1] chunk_id: xxx | Source: [xxx](url) | Date: xxx
 [2] chunk_id: yyy | Source: yyy | Date: yyy
 ```
 
@@ -374,7 +398,9 @@ Include if ANY of these apply:
 - ONLY chunks actually cited in response
 - Numbered sequentially [1], [2], [3]...
 - Order by first mention in response
-- Include: chunk_id, Source, Date
+- Include hyperlinks when URLs available: [{source}]({url})
+- Plain text when no URL: {source}
+- Include: chunk_id, Source (with hyperlink if available), Date
 
 TABLE FORMAT:
 ```markdown
@@ -436,12 +462,20 @@ For each cited chunk, get from retrieved_chunks array:
     "title": "Apple Inc. Annual Report",
     "document_type": "SEC Filing",
     "published_date": "2025-12-31",
-    "filing_date": "2025-12-31"
+    "filing_date": "2025-12-31",
+    "hyperlink": "https://sec.gov/edgar/file123.html",
+    "source_url": "...",  # Alternative field names
+    "document_url": "...",
+    "link": "..."
   }
 }
 ```
 
-STEP 3: Format reference line
+STEP 3: Format reference line with hyperlink
+```
+[reference_number] chunk_id: {chunk_id} | Source: [{source}]({url}) | Date: {date}
+```
+OR (if no URL available):
 ```
 [reference_number] chunk_id: {chunk_id} | Source: {source} | Date: {date}
 ```
@@ -453,6 +487,10 @@ METADATA PRIORITY:
   3. metadata.title (truncate if >50 chars)
   4. "Unknown" if none available
 
+- **URL**: Use first available from:
+  1. metadata.hyperlink
+  2. None (no hyperlink) if none available
+
 - **Date**: Use first available from:
   1. metadata.document_date
   2. metadata.filing_date
@@ -463,21 +501,31 @@ METADATA PRIORITY:
 EXAMPLE CONSTRUCTION:
 You cited: chunk_abc123, chunk_def456, chunk_abc123, chunk_ghi789
 
+Metadata extracted:
+- chunk_abc123: source="10-K Filing", url="https://sec.gov/file123.html", date="2025-12-31"
+- chunk_def456: source="Earnings Call Transcript", url="https://company.com/earnings", date="2025-11-01"
+- chunk_ghi789: source="Bloomberg Article", url=None, date="2025-12-20"
+
 Result:
 ```
 ## References
-[1] chunk_id: chunk_abc123 | Source: 10-K Filing | Date: 2025-12-31
-[2] chunk_id: chunk_def456 | Source: Earnings Call Transcript | Date: 2025-11-01
+[1] chunk_id: chunk_abc123 | Source: [10-K Filing](https://sec.gov/file123.html) | Date: 2025-12-31
+[2] chunk_id: chunk_def456 | Source: [Earnings Call Transcript](https://company.com/earnings) | Date: 2025-11-01
 [3] chunk_id: chunk_ghi789 | Source: Bloomberg Article | Date: 2025-12-20
 ```
 
-Note: chunk_abc123 only appears once as [1] even though cited multiple times.
+Note: 
+- chunk_abc123 only appears once as [1] even though cited multiple times
+- [1] and [2] have URLs, so sources are hyperlinked
+- [3] has no URL, so source text is plain (not hyperlinked)
 
 FALLBACK FORMATS (when metadata incomplete):
 ```
-[1] chunk_id: chunk_abc123 | Source: Company Filing | Date: 2025-12-31
+## References
+[1] chunk_id: chunk_abc123 | Source: [Company Filing](https://sec.gov/file.html) | Date: 2025-12-31
 [2] chunk_id: chunk_def456 | Source: Unknown | Date: 2025-11-01
-[3] chunk_id: chunk_ghi789 | Source: News Article | Date: Unknown
+[3] chunk_id: chunk_ghi789 | Source: [News Article](https://news.com/article) | Date: Unknown
+[4] chunk_id: chunk_jkl012 | Source: Internal Report | Date: 2025-11-15
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -489,6 +537,7 @@ MUST DO:
 ✓ Cite EVERY number/percentage/company-specific claim when using retrieved_chunks
 ✓ Use inline citations ^[chunk_id]^ format
 ✓ Include ## References section when chunks cited
+✓ Include hyperlinks in references when URLs available in metadata
 ✓ Be honest about missing data or coverage gaps
 ✓ Stay focused on orchestrator_payload fields (companies, metrics, dates)
 ✓ Maintain professional but conversational tone
@@ -497,6 +546,7 @@ MUST DO:
 NEVER DO:
 ✗ Output XML, JSON, or tool syntax in user-facing text
 ✗ Invent citations or chunk_ids
+✗ Invent URLs or hyperlinks not present in metadata
 ✗ Claim "our view/rating/target" without retrieved source
 ✗ Use memory as evidence for financial claims
 ✗ Ask clarifying questions when route is RAG_RETRIEVAL (unless data critically incomplete)
@@ -539,7 +589,10 @@ REFERENCE SECTION CHECK:
 □ Reference numbers sequential [1], [2], [3]...
 □ chunk_id matches exactly from retrieved_chunks
 □ Source and Date extracted from metadata
-□ Format: [N] chunk_id: xxx | Source: xxx | Date: xxx
+□ URLs included as hyperlinks when available in metadata
+□ Hyperlink format correct: [Source](URL)
+□ Plain text format used when no URL available
+□ Format: [N] chunk_id: xxx | Source: [xxx](url) OR xxx | Date: xxx
 
 MEMORY CHECK:
 □ Memory used ONLY for pronouns/formatting/continuity
